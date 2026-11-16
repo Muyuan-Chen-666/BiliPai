@@ -230,18 +230,23 @@ android {
             matchingFallbacks += listOf("release")
         }
         create("smooth") {
-            // Smooth 用于本地快速验证正式版运行语义：保留非 debug 行为，但跳过 R8/资源压缩。
+            // Smooth 使用与 release 相同的 R8/资源压缩（版本由 androidComponents 覆盖），
+            // 仅保留独立包名与 debug（Smooth 统一）签名，便于覆盖安装并保留数据。
             initWith(getByName("release"))
             applicationIdSuffix = ".dev"
-            versionNameSuffix = "-smooth"
+            versionNameSuffix = "-smooth.5"
             resValue("string", "app_name", "BiliPai Smooth")
             buildConfigField("boolean", "ALLOW_HARDCODED_DNS_FALLBACK", "true")
             buildConfigField("boolean", "ENABLE_VERBOSE_DEBUG_LOGS", "false")
             buildConfigField("boolean", "ENABLE_VERBOSE_RUNTIME_LOG_PERSISTENCE", "false")
             signingConfig = signingConfigs.getByName("debug")
             isDebuggable = false
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             matchingFallbacks += listOf("dev", "release")
         }
     }
@@ -358,6 +363,13 @@ androidComponents {
                     finalizedBy(exportTask)
                 }
             }
+        }
+    }
+    // Smooth 覆盖安装旧版并高于官方 0.8.5（585）。
+    onVariants(selector().withBuildType("smooth")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(586)
+            output.versionName.set("0.8.5-smooth.5")
         }
     }
 }

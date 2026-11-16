@@ -265,6 +265,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -3737,6 +3738,34 @@ private fun VideoPlayerSectionContent(
         // HDR/色彩元数据与纹理翻转维度仍触发重建。
         key(effectiveFlippedHorizontal, effectiveFlippedVertical, useTextureSurface) {
             val viewportAspectRatio = if (liquidGlassLayoutEnabled && !isFullscreen) VideoAspectRatio.FIT else currentAspectRatio
+            // SurfaceView 在 Compose 全屏换宿主后可能保留分栏视口尺寸（画面缩在左上角）。
+            // 等视口尺寸真正变化并连续 2 帧稳定后立即做一次 1px 的真实尺寸变化，迫使输出面
+            // 重新应用几何；尺寸始终不变时以 320ms 兜底。TextureView 不受影响。
+            var surfaceGeometryKick by remember { mutableIntStateOf(0) }
+            LaunchedEffect(isFullscreen, isPortraitFullscreen, useTextureSurface) {
+                if (useTextureSurface) return@LaunchedEffect
+                var lastSize = measuredPlayerViewportSize.value
+                var sizeChanged = false
+                var stableFrames = 0
+                withTimeoutOrNull(320) {
+                    while (!(sizeChanged && stableFrames >= 2)) {
+                        withFrameNanos { }
+                        val currentSize = measuredPlayerViewportSize.value
+                        if (currentSize != lastSize) {
+                            sizeChanged = true
+                            stableFrames = 0
+                        } else if (sizeChanged && currentSize.width > 0 && currentSize.height > 0) {
+                            stableFrames++
+                        }
+                        lastSize = currentSize
+                    }
+                }
+                surfaceGeometryKick++
+                withFrameNanos { }
+                withFrameNanos { }
+                surfaceGeometryKick++
+            }
+            val surfaceGeometryKickPadding = if (surfaceGeometryKick % 2 == 1) 1.dp else 0.dp
             val playerVideoSize = playerState.player.videoSize
             BoxWithConstraints(
                 modifier = playerContentModifier
@@ -3938,6 +3967,7 @@ private fun VideoPlayerSectionContent(
                             )
                         }
                         sizeModifier
+                            .padding(end = surfaceGeometryKickPadding)
                             .onSizeChanged { measuredPlayerViewportSize.value = it }
                             .graphicsLayer {
                                 scaleX = if (effectiveFlippedHorizontal) -scale else scale
