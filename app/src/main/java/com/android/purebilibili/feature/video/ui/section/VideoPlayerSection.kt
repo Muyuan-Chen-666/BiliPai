@@ -3733,8 +3733,24 @@ private fun VideoPlayerSectionContent(
         // isPortraitFullscreen 不作为 key：退出竖屏全屏保留 PlayerView 实例，由上方
         // LaunchedEffect 在退出瞬间直接重绑 surface（rebindPlayerSurfaceIfNeeded）恢复画面。
         // HDR/色彩元数据与纹理翻转维度仍触发重建。
-        key(effectiveFlippedHorizontal, effectiveFlippedVertical, useTextureSurface) {
+        key(
+            effectiveFlippedHorizontal,
+            effectiveFlippedVertical,
+            useTextureSurface,
+        ) {
             val viewportAspectRatio = if (liquidGlassLayoutEnabled && !isFullscreen) VideoAspectRatio.FIT else currentAspectRatio
+            // SurfaceView 在 Compose 全屏换宿主后可能保留分栏视口尺寸（画面缩在左上角）。
+            // 等布局落定后做一次 1px 的真实尺寸变化，迫使输出面重新应用几何；TextureView 不受影响。
+            var surfaceGeometryKick by remember { mutableIntStateOf(0) }
+            LaunchedEffect(isFullscreen, isPortraitFullscreen, useTextureSurface) {
+                if (useTextureSurface) return@LaunchedEffect
+                delay(320)
+                surfaceGeometryKick++
+                withFrameNanos { }
+                withFrameNanos { }
+                surfaceGeometryKick++
+            }
+            val surfaceGeometryKickPadding = if (surfaceGeometryKick % 2 == 1) 1.dp else 0.dp
             val playerVideoSize = playerState.player.videoSize
             BoxWithConstraints(
                 modifier = playerContentModifier
@@ -3932,6 +3948,7 @@ private fun VideoPlayerSectionContent(
                             )
                         }
                         sizeModifier
+                            .padding(end = surfaceGeometryKickPadding)
                             .onSizeChanged { measuredPlayerViewportSize = it }
                             .graphicsLayer {
                                 scaleX = if (effectiveFlippedHorizontal) -scale else scale
